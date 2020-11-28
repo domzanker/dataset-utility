@@ -12,6 +12,8 @@ from dataset_utilities.pcd_parser import PCDParser
 from enum import Enum, auto, unique
 import logging
 
+from cached_property import cached_property
+
 
 def to2D(point_3d):
     # assert(point_3d.size == (3,))
@@ -56,7 +58,7 @@ class SensorBase(object):
 
         self.ego_mask = None
 
-    def loadData(self, filename: str) -> bool:
+    def load_data(self, filename: str, data=None) -> bool:
         raise NotImplementedError
 
     def filterBox(
@@ -82,56 +84,38 @@ class Lidar(SensorBase):
         self.data = None
         self.frame = Frame.UNKNOWN
 
-    def loadData(self, filename: Path):
-        self.data = None
-        self.filename = filename
-        if filename.is_file():
+    def load_data(self, filename: Path = None, data=None):
+        if filename is not None:
             raise NotImplementedError
-            self.data = []
+            if filename.is_file():
+                pass
+            else:
+                logging.error(
+                    "Could not locate file %s for sensor %s" % (filename, self.id)
+                )
+                return False
+        elif data is not None:
+            self.data = data
+            self.filename = None
             self.frame = Frame.SENSOR
             return True
         else:
-            logging.error(
-                "Could not locate file %s for sensor %s" % (filename, self.id)
-            )
             return False
 
     def transformLidarToVehicle(self):
         logging.debug("transformed lidar to vehicle frame")
         if self.frame == Frame.SENSOR:
             # self.data.transform(homogenous_M)
-            self.data.transform(self.M)
+            self.data[:3, :] = self.extrinsic.transform(self.data[:3, :])
             self.frame = Frame.VEHICLE
 
     def transformVehicleToLidar(self):
         if self.frame == Frame.VEHICLE:
-            self.data.transform(self.M_inv)
+            self.data[:3, :] = self.extrinsic.inverse().transform(self.data[:3, :])
             self.frame = Frame.SENSOR
 
     def projectToGround(self):
         self.data.points[2, :] = 0
-
-    def createDenseGrid(self) -> np.ndarray:
-        # create a dense gridmap with following channels:
-        # 1. max height
-        # 2. points per cell
-        # 3. mean intensity
-        GRID_SIZE = [720, 720]
-        RESOLUTION = 0.04  # [m/px]
-        MAX_HEIGHT = 2.0
-        grid = np.zeros(GRID_SIZE)
-        for i in range(0, self.data.points.shape[1]):
-            date = self.data.points[:, i]
-            x = int(date[0] // RESOLUTION + GRID_SIZE[1] // 2)
-            y = int(date[1] // RESOLUTION + GRID_SIZE[0] // 2)
-            if x < 0 or y < 0 or y >= GRID_SIZE[0] or x >= GRID_SIZE[1]:
-                continue
-            z = date[2]
-            grid[y, x] = max(grid[y, x], min(z, MAX_HEIGHT) / MAX_HEIGHT * 255)
-        cv2.imwrite("sparse_lidar_grid.png", grid)
-        logging.debug("written grid to file sparse_lidar_grid")
-
-        return grid
 
     def filter_boxes(self, boxes, return_inliers: bool = False):
         for box in boxes:
@@ -221,25 +205,29 @@ class Lidar(SensorBase):
         # also export calibration and add timestamp to filename
         # the point cloud is rotated in alignment with vehicle frame but with origin in sensor origin
 
-        adjusted_point_cloud = self.data
         adjusted_calibration = self.extrinsic
+
+        adjusted_point_cloud = self.data
+
         if self.frame == Frame.VEHICLE:
-            # adjusted_point_cloud.transform(Isometry(translation=self.extrinsic.inverse().translation).matrix)
-            adjusted_point_cloud.transform(self.M_inv)
+            adjusted_point_cloud[:3, :] = adjusted_calibration.inverse().transform(
+                    adjusted_point_cloud[:3,:]
+            )
+
         elif self.frame == Frame.SENSOR:
-            # adjusted_point_cloud.transform(Isometry(rotation=self.extrinsic.rotation).matrix)
             pass
         else:
             raise ValueError(self.frame)
 
         parser = PCDParser()
         parser.addCalibration(calibration=adjusted_calibration)
+        output_path = Path(output_path)
         if isinstance(output_path, Path):
             output_path.mkdir(exist_ok=True, parents=True)
         parser.write(
-            np.swapaxes(adjusted_point_cloud.points[:3, :], 0, 1),
-            file_name=str(output_path / (str(self.id) + "_" + str(self.timestamp))),
-        )
+            np.swapaxes(adjusted_point_cloud[:3, :], 0, 1),
+            file_name=str(output_path.with_suffix(".pcd")),
+        ),
 
     def writeData(self, output_path: Path = None):
         if output_path is None:
@@ -271,7 +259,7 @@ class Camera(SensorBase):
         sensor_type="camera",
         *,
         ego_contour=None,
-        horizon: int = -1,
+        crop_horizon=True,
     ):
         """TODO: to be defined.
 
@@ -291,8 +279,15 @@ class Camera(SensorBase):
         self.cropped = False
         self.reset()
 
-        self.ego_mask = [ego_contour]
-        self._find_horizon()
+        if ego_contour is not None:
+            self.ego_mask = [ego_contour]
+        else:
+            self.ego_mask = None
+
+        if crop_horizon:
+            self._find_horizon()
+        else:
+            self.horizon = None
 
     def reset(self):
         """reset all internal parameters of the instance"""
@@ -302,13 +297,26 @@ class Camera(SensorBase):
         # self.P = self.K @ self.M[:3, :4]
         assert self.P.shape == (3, 4)
 
-        # homography
-        self.H = self.K @ np.column_stack(
+        # clearing cached properties
+        if "H" in self.__dict__:
+            del self.__dict__["H"]
+        if "H_inv" in self.__dict__:
+            del self.__dict__["H_inv"]
+
+    # homography
+    @cached_property
+    def H(self):
+        H = self.K @ np.column_stack(
             (self.M_inv[:3, 0], self.M_inv[:3, 1], self.M_inv[:3, 3])
         )
-        assert self.H.shape == (3, 3)
-        self.H_inv = np.linalg.inv(self.H)
-        assert self.H_inv.shape == (3, 3)
+        assert H.shape == (3, 3)
+        return H
+
+    @cached_property
+    def H_inv(self):
+        H_inv = np.linalg.inv(self.H)
+        assert H_inv.shape == (3, 3)
+        return H_inv
 
     def transformImageToGround(self, image_point):
         homogenous_point = self.transformImageToVehicle(image_point)
@@ -360,29 +368,34 @@ class Camera(SensorBase):
 
         return img[roi_h_low:roi_h_high, roi_w_low:roi_w_high, :]
 
-    def loadData(self, filepath: Path) -> bool:
-        """load image frim filepath using cv2.imread"""
-        if filepath.is_file():
-            img = cv2.imread(str(filepath))
-            self.filename = filepath
-            self.data = img
-            if self.ego_mask is not None:
-                self.removeContour(self.ego_mask, remove_color=self.REMOVE_COLOR)
-                logging.debug("remove contour")
-            if self.horizon != -1 and self.horizon is not None:
-                self.data = self.cropImage(
-                    # img, height_roi=[max(0, self.data.shape[0] - self.horizon), -1]
-                    img,
-                    height_roi=[max(0, self.horizon), -1],
-                )
-            self.input_size = self.data.shape
-            logging.debug("load data from " + str(filepath))
-            return True
-        else:
-            logging.error(
-                "Could not locate file %s for sensor %s" % (filepath, self.id)
+    def load_data(self, filepath: Path = None, data: np.ndarray = None) -> bool:
+        if filepath is not None:
+            """load image frim filepath using cv2.imread"""
+            if filepath.is_file():
+                img = cv2.imread(str(filepath))
+                self.filename = filepath
+                self.data = img
+            else:
+                logging.error()
+                return False
+        elif data is not None:
+            self.data = data
+            if self.data.dtype == np.float:
+                self.data = (255 * self.data).astype(np.uint8)
+
+            self.filename = Path()
+
+        if self.ego_mask is not None:
+            self.removeContour(self.ego_mask, remove_color=self.REMOVE_COLOR)
+            logging.debug("remove contour")
+        if self.horizon != -1 and self.horizon is not None:
+            self.data = self.cropImage(
+                self.data,
+                height_roi=[max(0, self.horizon), -1],
             )
-            return False
+        self.input_size = self.data.shape
+        logging.debug("load data from " + str(filepath))
+        return True
 
     def isInSight(self, point):
         projection = self.P @ to_homogenous_points(point)
@@ -472,10 +485,11 @@ class BirdsEyeView(Camera):
         resolution=0.01,
         out_size=(200, 200),
         camera=None,
+        **kwargs,
     ):
         """TODO: to be defined."""
         super().__init__(
-            id, extrinsic=extrinsic, intrinsic=intrinsic, sensor_type="bev"
+            id, extrinsic=extrinsic, intrinsic=intrinsic, sensor_type="bev", **kwargs
         )
         self.offset = offset
         self.resolution = resolution
