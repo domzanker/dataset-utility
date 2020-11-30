@@ -72,6 +72,9 @@ class SensorBase(object):
     def writeData(self, output_path: str = None):
         raise NotImplementedError
 
+    def export(self):
+        raise NotImplementedError
+
 
 class Lidar(SensorBase):
     def __init__(
@@ -101,6 +104,9 @@ class Lidar(SensorBase):
             return True
         else:
             return False
+
+    def export(self):
+        return {"extrinsic": self.M, "frame": self.frame, "data": self.data}
 
     def transformLidarToVehicle(self):
         logging.debug("transformed lidar to vehicle frame")
@@ -211,7 +217,7 @@ class Lidar(SensorBase):
 
         if self.frame == Frame.VEHICLE:
             adjusted_point_cloud[:3, :] = adjusted_calibration.inverse().transform(
-                    adjusted_point_cloud[:3,:]
+                adjusted_point_cloud[:3, :]
             )
 
         elif self.frame == Frame.SENSOR:
@@ -224,10 +230,12 @@ class Lidar(SensorBase):
         output_path = Path(output_path)
         if isinstance(output_path, Path):
             output_path.mkdir(exist_ok=True, parents=True)
+        file = output_path / self.id
         parser.write(
             np.swapaxes(adjusted_point_cloud[:3, :], 0, 1),
-            file_name=str(output_path.with_suffix(".pcd")),
+            file_name=str(file),
         ),
+        return file
 
     def writeData(self, output_path: Path = None):
         if output_path is None:
@@ -302,6 +310,9 @@ class Camera(SensorBase):
             del self.__dict__["H"]
         if "H_inv" in self.__dict__:
             del self.__dict__["H_inv"]
+
+    def export(self):
+        return {"intrinsic": self.K, "extrinsic": self.M, "data": self.data}
 
     # homography
     @cached_property
@@ -379,11 +390,12 @@ class Camera(SensorBase):
                 logging.error()
                 return False
         elif data is not None:
-            self.data = data
-            if self.data.dtype == np.float:
-                self.data = (255 * self.data).astype(np.uint8)
-
+            if data.dtype == np.float:
+                data = (255 * data).astype(np.uint8)
+            self.data = cv2.cvtColor(data, cv2.COLOR_RGB2BGR)
             self.filename = Path()
+        else:
+            raise ValueError
 
         if self.ego_mask is not None:
             self.removeContour(self.ego_mask, remove_color=self.REMOVE_COLOR)
@@ -455,10 +467,26 @@ class Camera(SensorBase):
         raise NotImplementedError
 
     def drawCalibration(self):
-        center_line = [np.array([i, 0, 0]) for i in range(0, 50, 1)]
+        center_line = [np.array([i, 0, 0]) for i in range(5, 10, 1)]
         for center_point in center_line:
             px_point = self.transformGroundToImage(center_point)
-            cv2.drawMarker(self.data, tuple(px_point), color=(255, 0, 0), thickness=2)
+            """
+            print(px_point)
+            marker_size = 2
+            if (
+                px_point[1] < self.data.shape[1]
+                and px_point[1] >= 0
+                and px_point[1] < self.data.shape[0]
+                and px_point[0] >= 0
+            ):
+                self.data[
+                    px_point[1] - marker_size : px_point[1] + marker_size,
+                    px_point[0] - marker_size : px_point[0] + marker_size,
+                ] = (0, 0, 255)
+            """
+            self.data = cv2.drawMarker(
+                self.data, tuple(px_point), color=(255, 0, 0), thickness=2
+            )
 
     def _find_horizon(self):
         # automatically set
@@ -469,6 +497,15 @@ class Camera(SensorBase):
         self.horizon = proj[1]
         if self.horizon < 0:
             logging.warn("horizon < 0 for Camera: ", self.id)
+
+    def write_data(self, output_path: Path) -> Path:
+        if self.data is None:
+            logging.warn("no data for camera %s" % self.id)
+            return Path()
+        output_path.mkdir(exist_ok=True, parents=True)
+        file = output_path / (self.id + ".png")
+        cv2.imwrite(str(file), self.data)
+        return file
 
 
 class BirdsEyeView(Camera):
