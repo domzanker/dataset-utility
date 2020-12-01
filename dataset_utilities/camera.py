@@ -84,14 +84,22 @@ class Lidar(SensorBase):
         sensor_type: str = "lidar",
     ):
         super().__init__(id=id, extrinsic=extrinsic, sensor_type=sensor_type)
-        self.data = None
+        self.data = None  # data is assumed in format [channel, nPoints]
         self.frame = Frame.UNKNOWN
 
     def load_data(self, filename: Path = None, data=None):
         if filename is not None:
-            raise NotImplementedError
+            # filename = Path(filename)
             if filename.is_file():
-                pass
+                if filename.suffix == ".pcd":
+                    pcd_parser = PCDParser()
+                    point_cloud, viewpoint = pcd_parser.read(str(filename))
+                    self.data = point_cloud
+                    self.filename = str(filename)
+                    self.FRAME = Frame.SENSOR
+                else:
+                    raise NotImplementedError
+
             else:
                 logging.error(
                     "Could not locate file %s for sensor %s" % (filename, self.id)
@@ -99,6 +107,7 @@ class Lidar(SensorBase):
                 return False
         elif data is not None:
             self.data = data
+            assert data.shape[0] in [3, 4]
             self.filename = None
             self.frame = Frame.SENSOR
             return True
@@ -232,7 +241,7 @@ class Lidar(SensorBase):
             output_path.mkdir(exist_ok=True, parents=True)
         file = output_path / self.id
         parser.write(
-            np.swapaxes(adjusted_point_cloud[:3, :], 0, 1),
+            np.swapaxes(adjusted_point_cloud[:, :], 0, 1),
             file_name=str(file),
         ),
         return file
@@ -387,7 +396,7 @@ class Camera(SensorBase):
                 self.filename = filepath
                 self.data = img
             else:
-                logging.error()
+                logging.warn("file %s does not exist" % filepath)
                 return False
         elif data is not None:
             if data.dtype == np.float:
@@ -401,10 +410,11 @@ class Camera(SensorBase):
             self.removeContour(self.ego_mask, remove_color=self.REMOVE_COLOR)
             logging.debug("remove contour")
         if self.horizon != -1 and self.horizon is not None:
-            self.data = self.cropImage(
-                self.data,
-                height_roi=[max(0, self.horizon), -1],
-            )
+            if self.horizon >= 0:
+                self.data = self.cropImage(
+                    self.data,
+                    height_roi=[max(0, self.horizon), -1],
+                )
         self.input_size = self.data.shape
         logging.debug("load data from " + str(filepath))
         return True
@@ -494,7 +504,7 @@ class Camera(SensorBase):
         line_at_infinity = [1, 0, 0, 0]
         proj = self.P @ line_at_infinity
         proj = np.ceil(proj[:2] / proj[2]).astype(np.int32)
-        self.horizon = proj[1]
+        self.horizon = max(0, proj[1])
         if self.horizon < 0:
             logging.warn("horizon < 0 for Camera: ", self.id)
 

@@ -1,5 +1,6 @@
 import numpy as np
 from dataset_utilities.transformation import Isometry
+from pathlib import Path
 
 
 class PCDParser:
@@ -43,7 +44,15 @@ class PCDParser:
         return header
 
     def write(self, point_cloud: np.ndarray, file_name: str, binary: bool = False):
-        self.fields = ["x", "y", "z"]
+        ## PointCloud has to be shape [nPoints, channels]
+        try:
+            assert point_cloud.shape[1] in [3, 4]
+        except Exception as e:
+            print(point_cloud.shape)
+            raise e
+
+        FIELDS = ["x", "y", "z", "intensity"]
+        self.fields = [FIELDS[i] for i in range(point_cloud.shape[1])]
 
         self.size = []
         self.type = []
@@ -68,7 +77,7 @@ class PCDParser:
             self.data = ["ascii"]
 
         header = self.composeHeader()
-        with open(str(file_name) + ".pcd", "w") as f:
+        with Path(file_name).with_suffix(".pcd").open("w+") as f:
             f.write(header)
             for i in range(0, self.points[0]):
                 point = point_cloud[i, :]

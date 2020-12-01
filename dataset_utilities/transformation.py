@@ -182,6 +182,24 @@ class Transformation(Isometry):
         super().__init__(translation, rotation)
 
 
+def build_extrinsic(trafo):
+    # carla applies rotation first, then translates.
+    # for a intuitive declaration we have to convert this
+    yaw = trafo.rotation.yaw
+    pitch = trafo.rotation.pitch
+    roll = trafo.rotation.roll
+    # apply rotation (pitch->yaw->roll)
+    # build from euler
+    # carla documentation states rotation by YZX
+    # https://carla.readthedocs.io/en/latest/python_api/#carla.Rotation
+    rotation = Rotation.from_euler("xyz", (roll, -pitch, -yaw), degrees=True)
+    origin = rotation.apply(
+        np.array([trafo.location.x, -trafo.location.y, trafo.location.z]), inverse=True
+    )
+    trafo.location = carla.Location(origin[0], -origin[1], origin[2])
+    return trafo
+
+
 if __name__ == "__main__":
     from math import isclose
 

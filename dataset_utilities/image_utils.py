@@ -14,16 +14,12 @@ def get_rot_bounding_box_experimental(img, box_points, out_size):
     # get width and height of the detected rectangle
     height = int(out_size[0])
     width = int(out_size[1])
-    src_pts = np.column_stack((box_points[:4, 1], box_points[:4, 0])).astype(
-        np.float32
-    )
+    src_pts = np.column_stack((box_points[:4, 1], box_points[:4, 0])).astype(np.float32)
     # coordinate of the points in box points after the rectangle has been
     # straightened
     dst_box = box(0, 0, height - 1, width - 1)
     dst_pts = np.array(dst_box.exterior.coords)
-    dst_pts = np.column_stack((dst_pts[:4, 1], dst_pts[:4, 0])).astype(
-        np.float32
-    )
+    dst_pts = np.column_stack((dst_pts[:4, 1], dst_pts[:4, 0])).astype(np.float32)
 
     # the perspective transformation matrix
     M = cv2.getPerspectiveTransform(src_pts, dst_pts)
