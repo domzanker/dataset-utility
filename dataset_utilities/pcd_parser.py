@@ -47,6 +47,7 @@ class PCDParser:
         ## PointCloud has to be shape [nPoints, channels]
         try:
             assert point_cloud.shape[1] in [3, 4]
+            assert point_cloud.shape[0] > 0
         except Exception as e:
             print(point_cloud.shape)
             raise e
