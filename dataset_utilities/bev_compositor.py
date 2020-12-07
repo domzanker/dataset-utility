@@ -11,6 +11,7 @@ from dataset_utilities.transformation import Isometry
 import numpy as np
 import cv2
 import logging
+import shapely.geometry
 
 
 def normalizeImage(img):
@@ -43,6 +44,8 @@ class BEVCompositor(object):
 
         self.label = np.full([self.map_height, self.map_width, 1], 255, dtype=np.uint8)
 
+        self.boundaries = []
+
         # sensors
         self.sensors = {}
         # old maps with ego_poses as key
@@ -56,17 +59,6 @@ class BEVCompositor(object):
             self.sensors[sensor.id] = sensor
         elif sensor.sensor_type == "bev":
             self.sensors[sensor.id] = sensor
-            """ TODO remove
-            self.sensors[sensor.id] = BirdsEyeView(
-                id=sensor.id,
-                extrinsic=sensor.extrinsic,
-                intrinsic=sensor.K,
-                offset=[self.reach[1], self.reach[0]],
-                resolution=self.resolution,
-                out_size=(self.map_width, self.map_height),
-                camera=sensor,
-            )
-            """
 
     def composeImage(self, debug=False):
         self.map = np.zeros([self.map_height, self.map_width, 3])
@@ -126,8 +118,11 @@ class BEVCompositor(object):
             # assume inner and exterior hull
             exterior = road_boundaries[0]
             interior = road_boundaries[1]
+
             for polyline in exterior:
-                polyline = np.array(polyline).reshape([2, -1])
+
+                polyline = np.swapaxes(np.asarray(polyline), 1, 0)
+                polyline = polyline[:, 1:]
                 assert polyline.shape[0] in (2, 3)
                 polyline = np.floor_divide(
                     polyline[:2, :] + [[self.reach[0]], [self.reach[1]]],
@@ -142,7 +137,9 @@ class BEVCompositor(object):
                     color=0,
                 )
             for polyline in interior:
-                polyline = np.array(polyline).reshape([2, -1])
+
+                polyline = np.swapaxes(np.asarray(polyline), 1, 0)
+                polyline = polyline[:, 1:]
                 assert polyline.shape[0] in (2, 3)
                 polyline = np.floor_divide(
                     polyline[:2, :] + [[self.reach[0]], [self.reach[1]]],
@@ -156,6 +153,7 @@ class BEVCompositor(object):
                     True,
                     color=0,
                 )
+
         else:
             for polyline in road_boundaries:
                 assert polyline.shape[0] in (2, 3)
@@ -171,6 +169,7 @@ class BEVCompositor(object):
                     False,
                     color=0,
                 )
+        # self.label = np.flipud(self.label)
 
 
 if __name__ == "__main__":
