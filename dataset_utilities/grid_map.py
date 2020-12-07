@@ -21,7 +21,8 @@ from pyquaternion import Quaternion
 from dataset_utilities.pcd_parser import PCDParser
 from dataset_utilities.camera import BirdsEyeView
 from dataset_utilities.transformation import Isometry, to_homogenous_points
-#from bev_stitcher import Stitcher
+
+# from bev_stitcher import Stitcher
 
 
 class RayArray:
@@ -154,7 +155,7 @@ class GridMap(object):
     Docstring TODO
     """
 
-    MAX_SIZE = 10000
+    MAX_SIZE = 5000
 
     def __init__(
         self,
@@ -218,6 +219,7 @@ class GridMap(object):
         self.marker = []
         self.arrows = []
         self.boundaries = []
+        self.boundaries_interior = []
 
         self.cameras = []
 
@@ -382,7 +384,6 @@ class GridMap(object):
 
         combined_mask = np.logical_and(mask, distance_mask)
         # combined_mask = mask
-        stitcher = Stitcher()
 
         self.grid_rgb[combined_mask] = bev_veh[combined_mask]
 
@@ -417,7 +418,63 @@ class GridMap(object):
             # now draw all markers and frames for debugging
             for boundary in self.boundaries:
 
+                boundary = np.asarray(boundary)
+                if boundary.shape[0] in [2, 3]:
+                    pass
+                elif boundary.shape[1] in [2, 3]:
+                    boundary = np.swapaxes(boundary, 1, 0)
+                else:
+                    raise ValueError
+
+                if boundary.shape[0] == 2:
+                    z = np.zeros_like(boundary[:1, :])
+                    boundary = np.concatenate((boundary, z))
+
                 grid_bound = self.grid_T_vehicle @ boundary
+                assert grid_bound.shape[0] in (2, 3)
+                px_grid_bounds = np.floor_divide(grid_bound, self.cell_size).astype(
+                    np.int32
+                )
+                px_grid_bounds = np.array([px_grid_bounds[1, :], px_grid_bounds[0, :]])
+                px_grid_bounds = np.swapaxes(px_grid_bounds, 0, 1)
+
+                height = cv2.polylines(
+                    height,
+                    px_grid_bounds[np.newaxis, :, :],
+                    False,
+                    color=(0, 0, 0),
+                    thickness=3,
+                )
+                occupation = cv2.polylines(
+                    occupation,
+                    px_grid_bounds[np.newaxis, :, :],
+                    False,
+                    color=(0, 255, 0),
+                    thickness=3,
+                )
+                intensity = cv2.polylines(
+                    intensity,
+                    px_grid_bounds[np.newaxis, :, :],
+                    False,
+                    color=(0, 0, 0),
+                    thickness=3,
+                )
+
+            for boundary in self.boundaries_interior:
+                boundary = np.asarray(boundary)
+                if boundary.shape[0] in [2, 3]:
+                    pass
+                elif boundary.shape[1] in [2, 3]:
+                    boundary = np.swapaxes(boundary, 1, 0)
+                else:
+                    raise ValueError
+
+                if boundary.shape[0] == 2:
+                    z = np.zeros_like(boundary[:1, :])
+                    boundary = np.concatenate((boundary, z))
+
+                grid_bound = self.grid_T_vehicle @ boundary
+
                 px_grid_bounds = np.floor_divide(grid_bound, self.cell_size).astype(
                     np.int32
                 )
@@ -472,50 +529,53 @@ class GridMap(object):
 
             for points in self.arrows:
                 grid_points = self.world_to_grid(points)
+                # origin at (0,0)_veh
                 origin = (grid_points[1, 0], grid_points[0, 0])
 
+                # x axis
                 height = cv2.line(
                     height,
                     origin,
                     (grid_points[1, 1], grid_points[0, 1]),
                     color=(255, 255, 255),
-                    thickness=3,
+                    thickness=4,
                 )
                 intensity = cv2.line(
                     intensity,
                     origin,
                     (grid_points[1, 1], grid_points[0, 1]),
                     color=(255, 255, 255),
-                    thickness=3,
+                    thickness=4,
                 )
                 occupation = cv2.line(
                     occupation,
                     origin,
                     (grid_points[1, 1], grid_points[0, 1]),
-                    color=(0, 255, 0),
-                    thickness=3,
+                    color=(255, 0, 0),
+                    thickness=4,
                 )
 
+                # y axis
                 height = cv2.line(
                     height,
                     origin,
                     (grid_points[1, 2], grid_points[0, 2]),
                     color=(0, 0, 0),
-                    thickness=3,
+                    thickness=2,
                 )
                 occupation = cv2.line(
                     occupation,
                     origin,
                     (grid_points[1, 2], grid_points[0, 2]),
                     color=(0, 255, 0),
-                    thickness=3,
+                    thickness=2,
                 )
                 intensity = cv2.line(
                     intensity,
                     origin,
                     (grid_points[1, 2], grid_points[0, 2]),
                     color=(0, 0, 0),
-                    thickness=3,
+                    thickness=2,
                 )
 
                 vertices = self.get_roi_vertices(
