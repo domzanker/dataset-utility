@@ -155,7 +155,7 @@ class GridMap(object):
     Docstring TODO
     """
 
-    MAX_SIZE = 5000
+    MAX_SIZE = 10000
 
     def __init__(
         self,
