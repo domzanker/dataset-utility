@@ -22,6 +22,9 @@ def write_scene(scene_path, args):
     # for sample in trange(len(list(scene_path.glob("sample_*"))), unit="frame"):
     for sample in range(len(list(scene_path.glob("sample_*")))):
         sample_path = scene_path / f"sample_{sample}"
+        if not sample_path.is_dir():
+            continue
+
         # load every image file
         images = {}
         for key, perspective in FILES_PATTERN.items():
