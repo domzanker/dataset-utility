@@ -19,7 +19,8 @@ def write_scene(scene_path, args):
 
     frames = []
     # print(args.scene_path.glob("sample"))
-    for sample in trange(len(list(scene_path.glob("sample_*"))), unit="frame"):
+    # for sample in trange(len(list(scene_path.glob("sample_*"))), unit="frame"):
+    for sample in range(len(list(scene_path.glob("sample_*")))):
         sample_path = scene_path / f"sample_{sample}"
         # load every image file
         images = {}
@@ -42,7 +43,7 @@ def write_scene(scene_path, args):
 def write_all_scenes(args):
     executor = ProcessPoolExecutor(max_workers=10)
     scenes = list(args.path.glob("scene_*"))
-    with tqdm(total=len(scenes), leave=False, smoothing=0, unit="sample") as pbar:
+    with tqdm(total=len(scenes), leave=False, smoothing=0, unit="scene") as pbar:
         """
         for i in range(number_of_samples):
             sample_pipeline(dataset.scene_dir)
