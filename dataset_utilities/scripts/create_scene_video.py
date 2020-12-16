@@ -11,13 +11,8 @@ FILES_PATTERN = {"front": "cam_front"}
 def write_scene(scene_path, args):
     # for every sample_* dir in SCENE_PATH
     output_path = args.out_path / scene_path.name
-    writer = cv2.VideoWriter(
-        f"{output_path}.avi",
-        cv2.VideoWriter_fourcc("M", "J", "P", "G"),
-        15,
-        (args.width, args.height),
-    )
 
+    writer = None
     frames = []
     # print(args.scene_path.glob("sample"))
     # for sample in trange(len(list(scene_path.glob("sample_*"))), unit="frame"):
@@ -34,6 +29,13 @@ def write_scene(scene_path, args):
             file = sample_path / f"{perspective}.png"
             img = cv2.imread(str(file))
             if img is not None:
+                if writer is None:
+                    writer = cv2.VideoWriter(
+                        f"{output_path}.avi",
+                        cv2.VideoWriter_fourcc("M", "J", "P", "G"),
+                        15,
+                        (img.shape[1], img.shape[0]),
+                    )
                 """
                 cv2.imshow("frame", img)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -74,7 +76,7 @@ def get_image_collection(scene_path, args):
 
 
 def write_all_scenes(args):
-    executor = ProcessPoolExecutor(max_workers=10)
+    executor = ProcessPoolExecutor(max_workers=16)
     scenes = list(args.path.glob("scene_*"))
     with tqdm(total=len(scenes), leave=False, smoothing=0, unit="scene") as pbar:
         """
