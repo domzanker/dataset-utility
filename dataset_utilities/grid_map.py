@@ -1,5 +1,5 @@
 """
-This class aim at the creation of a dense elevation grid from several lidar sweeps over time
+This class aims at the creation of a dense elevation grid from several lidar sweeps over time
 
 Based on a given vehicle pose a certain roi is computed as grid updated until leaving the roi
 
@@ -27,7 +27,9 @@ from dataset_utilities.transformation import Isometry, to_homogenous_points
 
 class RayArray:
     """
-    Class casting rays for every point in a point cloud
+    Class casting rays for every point in a point cloud.
+    The ray casting is done by using Bresenham's line algorithm.
+    Taking advantage of parallel numpy implementation.
     ------
     Args:
     origin: sensor origin. the values are supposed to be discretized.
@@ -151,9 +153,6 @@ class RayArray:
 
 
 class GridMap(object):
-    """
-    Docstring TODO
-    """
 
     MAX_SIZE = 10000
 
@@ -177,8 +176,7 @@ class GridMap(object):
 
         self.cell_size = cell_size  # [m]
 
-        # dummy value for now
-        # pos of sensor in grid
+        # intial pos of sensor in grid
         self.sensor_origin = [
             int(self.height),
             int(self.width),
